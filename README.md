@@ -1,2 +1,4 @@
-# Router
-Simple attribute router
+# Limpich/Router
+
+Simple attribute based router for http requests.
+
