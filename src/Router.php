@@ -104,7 +104,7 @@ class Router
       $methodAttribute = $methodAttributeReflection->newInstance();
       $methodClosure = $reflectionMethod->getClosure($controller);
       $methodPattern = $controllerAttribute->getPath() . $methodAttribute->getPattern();
-      $methodPattern = "~$methodPattern~i";
+      $methodPattern = "~^$methodPattern$~i";
 
       $this->resolvedRoutes[$methodAttribute->getMethod()][$methodPattern] = $methodClosure;
     }
@@ -142,9 +142,6 @@ class Router
             ? call_user_func_array($this->cannotResolveArgumentsHandler, [$exception, $serverRequest])
             : throw $exception;
         } catch (Throwable $exception) {
-//          if ($exception instanceof CannotResolveMethodArgumentsException) {
-//            throw $exception;
-//          }
           return !is_null($this->throwableHandler)
             ? call_user_func_array($this->throwableHandler, [$exception, $serverRequest])
             /** Throw exception if $this->throwableHandler isn`t set */
