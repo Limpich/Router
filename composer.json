@@ -12,12 +12,13 @@
   "require": {
     "php": ">=8.0",
     "psr/container": "^1.0",
-    "psr/http-message": "^1.0"
+    "psr/http-message": "^1.0",
+    "psr/http-server-middleware": "1.0.x-dev"
   },
   "require-dev": {
     "phpunit/phpunit": "^9.5",
     "guzzlehttp/guzzle": "^7.4",
-    "symfony/dependency-injection": "6.1.x-dev"
+    "php-di/php-di": "dev-master"
   },
   "bin": [
     "vendor/bin"

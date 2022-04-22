@@ -3,15 +3,21 @@
 namespace Limpich\Router;
 
 use Closure;
+use GuzzleHttp\Psr7\Response;
 use Limpich\Router\Attributes\Controller;
 use Limpich\Router\Attributes\Method;
+use Limpich\Router\Attributes\Middleware;
 use Limpich\Router\Exceptions\CannotResolveMethodArgumentsException;
 use Limpich\Router\Exceptions\ClassNotControllerException;
+use Limpich\Router\Exceptions\ClassNotMiddlewareException;
 use Limpich\Router\Exceptions\NoMethodForPathException;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
 use Psr\Container\NotFoundExceptionInterface;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\MiddlewareInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 use ReflectionFunction;
 use ReflectionMethod;
 use ReflectionObject;
@@ -22,13 +28,18 @@ class Router
   /**
    * @var array
    */
-  public array $resolvedRoutes = [
+  private array $resolvedRoutes = [
     Method::GET    => [],
     Method::POST   => [],
     Method::PUT    => [],
     Method::PATCH  => [],
     Method::DELETE => [],
   ];
+
+  /**
+   * @var MiddlewareInterface[]
+   */
+  private array $middlewares = [];
 
   private ?Closure $defaultHandler = null;
   private ?Closure $throwableHandler = null;
@@ -81,10 +92,10 @@ class Router
   {
     try {
       $controller = $this->container->get($controllerClass);
+      $controllerReflectionObject = new ReflectionObject($controller);
     } catch (NotFoundExceptionInterface | ContainerExceptionInterface) {
       throw new ClassNotControllerException("Class $controllerClass not found");
     }
-    $controllerReflectionObject = new ReflectionObject($controller);
 
     $controllerAttributeReflection = $controllerReflectionObject
         ->getAttributes(Controller::class)[0] ?? null;
@@ -106,7 +117,15 @@ class Router
       $methodPattern = $controllerAttribute->getPath() . $methodAttribute->getPattern();
       $methodPattern = "~^$methodPattern$~i";
 
-      $this->resolvedRoutes[$methodAttribute->getMethod()][$methodPattern] = $methodClosure;
+      $middleware = null;
+      if ($middlewareAttribute = $reflectionMethod->getAttributes(Middleware::class)[0] ?? null) {
+        $middleware = $middlewareAttribute->getArguments()['code'];
+      }
+
+      $this->resolvedRoutes[$methodAttribute->getMethod()][$methodPattern] = [
+        'closure' => $methodClosure,
+        'middleware' => $middleware,
+      ];
     }
 
     return $this;
@@ -121,13 +140,42 @@ class Router
     return $this;
   }
 
+  public function registerMiddleware(string $middlewareClass): Router
+  {
+    try {
+      $middleware = $this->container->get($middlewareClass);
+      if (!($middleware instanceof MiddlewareInterface)) {
+        throw new ClassNotMiddlewareException("Middleware $middlewareClass not found");
+      }
+
+      $middlewareReflectionObject = new ReflectionObject($middleware);
+    } catch (NotFoundExceptionInterface | ContainerExceptionInterface) {
+      throw new ClassNotMiddlewareException("Middleware $middlewareClass not found");
+    }
+
+    if ($middlewareAttribute = $middlewareReflectionObject->getAttributes(Middleware::class)[0] ?? null) {
+      $this->middlewares[$middlewareAttribute->getArguments()['code']] = $middleware;
+    }
+
+    return $this;
+  }
+
+  public function registerMiddlewares(array $middlewareClasses): Router
+  {
+    foreach ($middlewareClasses as $middlewareClass) {
+      $this->registerMiddleware($middlewareClass);
+    }
+
+    return $this;
+  }
+
   public function run(ServerRequestInterface $serverRequest): mixed
   {
     /**
      * @var string $pattern
      * @var Closure $pattern
      */
-    foreach ($this->resolvedRoutes[$serverRequest->getMethod()] as $pattern => $closure) {
+    foreach ($this->resolvedRoutes[$serverRequest->getMethod()] as $pattern => $method) {
       $resolvedVars = [];
       if ($this->isPatternMatch($serverRequest, $pattern, $resolvedVars)) {
         $extractedVars = array_merge(
@@ -135,17 +183,58 @@ class Router
           $resolvedVars
         );
 
-        try {
-          return $this->runWithParamsInject($closure, $extractedVars);
-        } catch (CannotResolveMethodArgumentsException $exception) {
-          return !is_null($this->cannotResolveArgumentsHandler)
-            ? call_user_func_array($this->cannotResolveArgumentsHandler, [$exception, $serverRequest])
-            : throw $exception;
-        } catch (Throwable $exception) {
-          return !is_null($this->throwableHandler)
-            ? call_user_func_array($this->throwableHandler, [$exception, $serverRequest])
-            /** Throw exception if $this->throwableHandler isn`t set */
-            : throw $exception;
+        $handler = new class (
+          Closure::fromCallable([$this, 'runWithParamsInject']),
+          $method['closure'],
+          $extractedVars,
+          $this->throwableHandler,
+          $this->cannotResolveArgumentsHandler,
+          $serverRequest
+        ) implements RequestHandlerInterface {
+          public function __construct(
+            private Closure $run,
+            private Closure $closure,
+            private array $extractedVars,
+            private ?Closure $throwableHandler,
+            private ?Closure $cannotResolveArgumentsHandler,
+            private ServerRequestInterface $serverRequest,
+          ) {
+
+          }
+
+          public function handle(ServerRequestInterface $request): ResponseInterface
+          {
+            try {
+              return call_user_func_array($this->run, [$this->closure, $this->extractedVars]);
+            } catch (CannotResolveMethodArgumentsException $exception) {
+              return !is_null($this->cannotResolveArgumentsHandler)
+                ? call_user_func_array($this->cannotResolveArgumentsHandler, [$exception, $this->serverRequest])
+                : throw $exception;
+            } catch (Throwable $exception) {
+              return !is_null($this->throwableHandler)
+                ? call_user_func_array($this->throwableHandler, [$exception, $this->serverRequest])
+                /** Throw exception if $this->throwableHandler isn`t set */
+                : throw $exception;
+            }
+          }
+        };
+
+        if ($method['middleware']) {
+          $middleware = $this->middlewares[$method['middleware']];
+          $middleware->process($serverRequest, $handler);
+        } else {
+          try {
+            return $this->runWithParamsInject($method['closure'], $extractedVars);
+          } catch (CannotResolveMethodArgumentsException $exception) {
+            return !is_null($this->cannotResolveArgumentsHandler)
+              ? call_user_func_array($this->cannotResolveArgumentsHandler, [$exception, $serverRequest])
+              : throw $exception;
+          } catch (Throwable $exception) {
+            return !is_null($this->throwableHandler)
+              ? call_user_func_array($this->throwableHandler, [$exception, $serverRequest])
+              /** Throw exception if $this->throwableHandler isn`t set */
+              : throw $exception;
+          }
         }
       }
     }
