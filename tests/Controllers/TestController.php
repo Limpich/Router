@@ -2,9 +2,11 @@
 
 namespace Limpich\Tests\Router\Controllers;
 
+use GuzzleHttp\Psr7\Response;
 use Limpich\Router\Attributes\Controller;
 use Limpich\Router\Attributes\Method;
 use Limpich\Router\Attributes\Middleware;
+use Psr\Http\Message\ResponseInterface;
 
 #[Controller]
 class TestController
@@ -22,8 +24,8 @@ class TestController
   }
 
   #[Method('/get3', Method::GET), Middleware(code: 'test')]
-  public function get3(): string
+  public function get3(): ResponseInterface
   {
-    return 'valid';
+    return new Response(200, [], 'valid');
   }
 }

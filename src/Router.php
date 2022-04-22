@@ -221,7 +221,7 @@ class Router
 
         if ($method['middleware']) {
           $middleware = $this->middlewares[$method['middleware']];
-          $middleware->process($serverRequest, $handler);
+          return $middleware->process($serverRequest, $handler);
         } else {
           try {
             return $this->runWithParamsInject($method['closure'], $extractedVars);

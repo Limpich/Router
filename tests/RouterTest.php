@@ -133,20 +133,15 @@ class RouterTest extends TestCase
     $container->set(TestController::class, new TestController());
     $container->set(TestMiddleware::class, new TestMiddleware());
 
-    $this->expectException(NoMethodForPathException::class);
-
     $response = (new Router($container))
       ->registerController(TestController::class)
       ->registerMiddleware(TestMiddleware::class)
-      ->setThrowableHandler(function (Throwable $e, ServerRequestInterface $serverRequest) {
-        return new Response(500);
-      })
       ->run(
         (new ServerRequest('GET', "https://example.com/get3?stop=0"))
           ->withQueryParams(['stop' => 0])
       );
 
-    $this->assertEquals('valid', $response);
+    $this->assertEquals('valid', $response->getBody()->getContents());
   }
 
   #[NoReturn] public function testGet8()
@@ -154,8 +149,6 @@ class RouterTest extends TestCase
     $container = new Container();
     $container->set(TestController::class, new TestController());
     $container->set(TestMiddleware::class, new TestMiddleware());
-
-    $this->expectException(NoMethodForPathException::class);
 
     /** @var ResponseInterface $response */
     $response = (new Router($container))
