@@ -93,9 +93,11 @@ class Router
    * @param Closure|null $optionsMethodHandler
    *  Callable with 1 argument - \Psr\Http\Message\ServerRequestInterface
    */
-  public function setOptionsMethodHandler(?Closure $optionsMethodHandler): void
+  public function setOptionsMethodHandler(?Closure $optionsMethodHandler): self
   {
     $this->optionsMethodHandler = $optionsMethodHandler;
+
+    return $this;
   }
 
   public function registerController(string $controllerClass): Router
