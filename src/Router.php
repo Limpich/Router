@@ -3,7 +3,6 @@
 namespace Limpich\Router;
 
 use Closure;
-use GuzzleHttp\Psr7\Response;
 use Limpich\Router\Attributes\Controller;
 use Limpich\Router\Attributes\Method;
 use Limpich\Router\Attributes\Middleware;
@@ -11,6 +10,7 @@ use Limpich\Router\Exceptions\CannotResolveMethodArgumentsException;
 use Limpich\Router\Exceptions\ClassNotControllerException;
 use Limpich\Router\Exceptions\ClassNotMiddlewareException;
 use Limpich\Router\Exceptions\NoMethodForPathException;
+use Limpich\Router\Exceptions\NoOptionsHandlerException;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
 use Psr\Container\NotFoundExceptionInterface;
@@ -44,6 +44,7 @@ class Router
   private ?Closure $defaultHandler = null;
   private ?Closure $throwableHandler = null;
   private ?Closure $cannotResolveArgumentsHandler = null;
+  private ?Closure $optionsMethodHandler = null;
 
   /**
    * @param ContainerInterface $container
@@ -86,6 +87,15 @@ class Router
     $this->cannotResolveArgumentsHandler = $cannotResolveArgumentsHandler;
 
     return $this;
+  }
+
+  /**
+   * @param Closure|null $optionsMethodHandler
+   *  Callable with 1 argument - \Psr\Http\Message\ServerRequestInterface
+   */
+  public function setOptionsMethodHandler(?Closure $optionsMethodHandler): void
+  {
+    $this->optionsMethodHandler = $optionsMethodHandler;
   }
 
   public function registerController(string $controllerClass): Router
@@ -171,6 +181,14 @@ class Router
 
   public function run(ServerRequestInterface $serverRequest): mixed
   {
+    $method = $serverRequest->getMethod();
+
+    if ($method === Method::OPTIONS) {
+      return !is_null($this->optionsMethodHandler)
+        ? call_user_func_array($this->optionsMethodHandler, [$serverRequest])
+        : throw new NoOptionsHandlerException();
+    }
+
     /**
      * @var string $pattern
      * @var Closure $pattern

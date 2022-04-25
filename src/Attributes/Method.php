@@ -12,6 +12,7 @@ class Method
   public const PUT    = 'PUT';
   public const PATCH  = 'PATCH';
   public const DELETE = 'DELETE';
+  public const OPTIONS = 'OPTIONS';
 
   /**
    * @param string $pattern
