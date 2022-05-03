@@ -6,9 +6,11 @@ use DI\Container;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\ServerRequest;
 use JetBrains\PhpStorm\NoReturn;
+use Limpich\Router\Attributes\Method;
 use Limpich\Router\Exceptions\CannotResolveMethodArgumentsException;
 use Limpich\Router\Exceptions\NoMethodForPathException;
-use Limpich\Router\Router;
+use Limpich\Router\RouterBuilder;
+use Limpich\Router\RouterOld;
 use Limpich\Tests\Router\Controllers\TestController;
 use Limpich\Tests\Router\Middlewares\TestMiddleware;
 use PHPUnit\Framework\TestCase;
@@ -18,147 +20,84 @@ use Throwable;
 
 class RouterTest extends TestCase
 {
-  #[NoReturn] public function testGet1()
+  private function getBuilder(): RouterBuilder
   {
-    $container = new Container();
-    $container->set(TestController::class, new TestController());
-
-    $response = (new Router($container))
-      ->registerController(TestController::class)
-      ->run(new ServerRequest('GET', 'https://example.com/get1'));
-
-    $this->assertEquals('valid', $response);
+    return new RouterBuilder(
+      new RouterHandler(),
+      new Container(),
+    );
   }
-
-  /**
-   * @dataProvider get2Provider
-   */
-  #[NoReturn] public function testGet2(int $a, int $b, int $expected)
+  
+  
+  public function testRouterDefault(): void
   {
-    $container = new Container();
-    $container->set(TestController::class, new TestController());
-
-    $response = (new Router($container))
-      ->registerController(TestController::class)
-      ->run(
-        (new ServerRequest('GET', "https://example.com/get2?a=$a&b=$b"))
-          ->withQueryParams(['a' => $a, 'b' => $b,])
-      );
-
-    $this->assertEquals($expected, $response);
-  }
-
-  public function get2Provider(): array
-  {
-    return [
-      [123,  234,   357],
-      [-1,   1,     0  ],
-      [111, -1000, -889],
-    ];
-  }
-
-  #[NoReturn] public function testGet3()
-  {
-    $container = new Container();
-    $container->set(TestController::class, new TestController());
-
-    $this->expectException(CannotResolveMethodArgumentsException::class);
-
-    (new Router($container))
-      ->registerController(TestController::class)
-      ->setThrowableHandler(function (Throwable $e, ServerRequestInterface $serverRequest) {
-        return new Response(400);
+    $router = $this
+      ->getBuilder()
+      ->withRoute(Method::GET, '/get', function() {
+        return new Response(200);
       })
-      ->run(
-        (new ServerRequest('GET', "https://example.com/get2?b=1"))
-          ->withQueryParams(['b' => 1,])
-      );
+      ->build();
+    
+    $response = $router->run(new ServerRequest('GET', 'https://example.com/'));
+    
+    $this->assertEquals(404, $response->getStatusCode());
   }
 
-  #[NoReturn] public function testGet4()
+  public function testOptions(): void
   {
-    $container = new Container();
-    $container->set(TestController::class, new TestController());
-
-    $response = (new Router($container))
-      ->registerController(TestController::class)
-      ->setCannotResolveArgumentsHandler(function (Throwable $e, ServerRequestInterface $serverRequest) {
-        return 'valid';
+    $router = $this
+      ->getBuilder()
+      ->withRoute(Method::GET, '/get', function() {
+        return new Response(200);
       })
-      ->run(
-        (new ServerRequest('GET', "https://example.com/get2?b=1"))
-          ->withQueryParams(['b' => 1,])
-      );
+      ->build();
 
-    $this->assertEquals('valid', $response);
+    $response = $router->run(new ServerRequest(Method::OPTIONS, 'https://example.com/get'));
+
+    $this->assertEquals(200, $response->getStatusCode());
+    $this->assertEquals('https://example.com', $response->getHeaderLine('Origin'));
   }
-
-  #[NoReturn] public function testGet5()
+  
+  public function testGetWithoutParams(): void
   {
-    $container = new Container();
-    $container->set(TestController::class, new TestController());
-
-    $this->expectException(NoMethodForPathException::class);
-
-    (new Router($container))
-      ->registerController(TestController::class)
-      ->setThrowableHandler(function (Throwable $e, ServerRequestInterface $serverRequest) {
-        return new Response(500);
+    $router = $this
+      ->getBuilder()
+      ->withRoute(Method::GET, '/get', function() {
+        return new Response(204);
       })
-      ->run(
-        new ServerRequest('GET', "https://example.com/notExistingPath")
-      );
+      ->build();
+
+    $response = $router->run(new ServerRequest(Method::GET, 'https://example.com/get'));
+
+    $this->assertEquals(204, $response->getStatusCode());
   }
 
-  #[NoReturn] public function testGet6()
+  public function testGetWithoutParamsController(): void
   {
-    $container = new Container();
-    $container->set(TestController::class, new TestController());
+    $router = $this
+      ->getBuilder()
+      ->withController(TestController::class)
+      ->build();
 
-    $response = (new Router($container))
-      ->registerController(TestController::class)
-      ->setDefaultHandler(function (ServerRequestInterface $serverRequest) {
-        return 'valid';
-      })
-      ->run(
-        new ServerRequest('GET', "https://example.com/notExistingPath")
-      );
+    $response = $router->run(new ServerRequest(Method::GET, 'https://example.com/get'));
 
-    $this->assertEquals('valid', $response);
-  }
-
-  #[NoReturn] public function testGet7()
-  {
-    $container = new Container();
-    $container->set(TestController::class, new TestController());
-    $container->set(TestMiddleware::class, new TestMiddleware());
-
-    $response = (new Router($container))
-      ->registerController(TestController::class)
-      ->registerMiddleware(TestMiddleware::class)
-      ->run(
-        (new ServerRequest('GET', "https://example.com/get3?stop=0"))
-          ->withQueryParams(['stop' => 0])
-      );
-
+    $this->assertEquals(200, $response->getStatusCode());
     $this->assertEquals('valid', $response->getBody()->getContents());
   }
 
-  #[NoReturn] public function testGet8()
+  public function testGetCannotResolveParams(): void
   {
-    $container = new Container();
-    $container->set(TestController::class, new TestController());
-    $container->set(TestMiddleware::class, new TestMiddleware());
+    $router = $this
+      ->getBuilder()
+      ->withController(TestController::class)
+      ->build();
 
-    /** @var ResponseInterface $response */
-    $response = (new Router($container))
-      ->registerController(TestController::class)
-      ->registerMiddleware(TestMiddleware::class)
-      ->run(
-        (new ServerRequest('GET', "https://example.com/get3?stop=1"))
-          ->withQueryParams(['stop' => 1])
-      );
-
-    $this->assertEquals('111', $response->getStatusCode());
+    $response = $router->run(new ServerRequest(Method::GET, 'https://example.com/get2'));
+    
+    $array = json_decode($response->getBody()->getContents());
+    
+    $this->assertEquals(400, $response->getStatusCode());
+    $this->assertEquals('/get2',            $array->path);
+    $this->assertEquals('a can\'t be null', $array->error);
   }
 }

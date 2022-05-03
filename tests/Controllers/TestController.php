@@ -11,10 +11,10 @@ use Psr\Http\Message\ResponseInterface;
 #[Controller]
 class TestController
 {
-  #[Method('/get1', Method::GET)]
-  public function get1(): string
+  #[Method('/get', Method::GET)]
+  public function get(): ResponseInterface
   {
-    return 'valid';
+    return new Response(200, [], 'valid');
   }
 
   #[Method('/get2', Method::GET)]
