@@ -39,12 +39,17 @@ class Router
     foreach ($routes as $route) {
       $resolvedVars = [];
       if ($this->isPatternMatch($request, $route->getPath(), $resolvedVars)) {
+        
+        $resolvedVars = array_merge(
+          $resolvedVars,
+          $this->extractVarsFromServerRequest($request)
+        );
+        
         try {
           return $this->runWithParamsInject($route->getCallable(), $resolvedVars);  
         } catch (CannotResolveMethodArgumentsException $exception) {
           return $this->routerHandler->handleCannotResolveArguments($exception, $request);
         }
-        
       }
     }
     
@@ -78,5 +83,16 @@ class Router
     }
 
     return $reflectionFunction->invoke(...$varsToInject);
+  }
+
+  private function extractVarsFromServerRequest(ServerRequestInterface $serverRequest): array
+  {
+    $getParams = $serverRequest->getQueryParams();
+    $postParams = (array)$serverRequest->getParsedBody();
+
+    return array_merge(
+      $getParams,
+      $postParams
+    );
   }
 }
